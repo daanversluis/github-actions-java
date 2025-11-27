@@ -7,32 +7,60 @@ on:
     branches: [ main ]
 
 jobs:
-  build:
+  quality-and-unit-tests:
     runs-on: ubuntu-latest
+
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
 
-    - name: Cache Maven dependencies
-      uses: actions/cache@v3
-      with:
-        path: ~/.m2
-        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-        restore-keys: ${{ runner.os }}-m2
+      - name: Cache Maven dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
 
-    - name: Build and test everything
-      run: |
-        ./mvnw checkstyle:check
-        ./mvnw spotbugs:check
-        ./mvnw clean test
-        ./mvnw clean package -DskipTests
-        docker compose build app
-        docker compose up -d
-        sleep 30
-        curl -f http://localhost:8080/api/health || exit 1
-        docker compose down
+      - name: Run checks and unit tests
+        run: |
+          ./mvnw checkstyle:check
+          ./mvnw spotbugs:check
+          ./mvnw clean test
+
+  docker-integration-test:
+    needs: quality-and-unit-tests        # alleen draaien als bovenstaande job slaagt
+    runs-on: ubuntu-latest
+    # alleen op main, niet op PRs
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Cache Maven dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+      - name: Package app (no tests)
+        run: ./mvnw clean package -DskipTests
+
+      - name: Docker compose integration test
+        run: |
+          docker compose build app
+          docker compose up -d
+          sleep 30
+          curl -f http://localhost:8080/api/health || exit 1
+          docker compose down
